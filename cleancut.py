@@ -242,6 +242,7 @@ examples:
   python3 cleancut.py talk.mp4 --model medium --pause-threshold 0.4
   python3 cleancut.py interview.mp4 --output interview_final.mp4
   python3 cleancut.py webinar.mp4 --extra-fillers like so basically --language en
+  python3 cleancut.py recording.mp4 --no-fillers
         """,
     )
     parser.add_argument("video_path", help="Path to the input video file")
@@ -257,6 +258,10 @@ examples:
     parser.add_argument(
         "--extra-fillers", nargs="+", default=[], metavar="WORD",
         help="Additional words to treat as fillers, e.g. --extra-fillers like so basically",
+    )
+    parser.add_argument(
+        "--no-fillers", action="store_true",
+        help="Skip filler word removal — only cut pauses",
     )
     parser.add_argument(
         "--language", default="en", metavar="CODE",
@@ -285,15 +290,15 @@ examples:
         os.path.splitext(video_path)[0] + "_cleaned" + os.path.splitext(video_path)[1]
     )
 
-    filler_words = DEFAULT_FILLERS | {w.lower() for w in args.extra_fillers}
+    filler_words = set() if args.no_fillers else DEFAULT_FILLERS | {w.lower() for w in args.extra_fillers}
 
     print(f"\n{'='*50}")
     print(f"  cleancut")
     print(f"{'='*50}")
     print(f"  Input : {video_path}")
     print(f"  Output: {output_path}")
-    print(f"  Model : {args.model}  |  Pause: >{args.pause_threshold}s")
-    if args.extra_fillers:
+    print(f"  Model : {args.model}  |  Pause: >{args.pause_threshold}s  |  Fillers: {'off' if args.no_fillers else 'on'}")
+    if args.extra_fillers and not args.no_fillers:
         print(f"  Extra fillers: {', '.join(args.extra_fillers)}")
     print(f"{'='*50}\n")
 
