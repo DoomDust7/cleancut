@@ -161,6 +161,28 @@ def build_cut_regions(
     return cuts
 
 
+def greedy_cuts_for_target(
+    pause_gaps: list[list[float]],
+    video_duration: float,
+    target_duration: float,
+) -> list[list[float]]:
+    """Select the minimum set of longest pauses needed to reach target_duration."""
+    needed = video_duration - target_duration
+    if needed <= 0:
+        print(f"      Video is already {fmt_duration(video_duration)}, under target.")
+        return []
+    # Sort pauses longest-first, greedily pick until we've cut enough
+    sorted_pauses = sorted(pause_gaps, key=lambda r: r[1] - r[0], reverse=True)
+    selected = []
+    total_cut = 0.0
+    for gap in sorted_pauses:
+        if total_cut >= needed:
+            break
+        selected.append(gap)
+        total_cut += gap[1] - gap[0]
+    return selected
+
+
 def merge_cuts_to_keep_ranges(
     cuts: list[list[float]],
     video_duration: float,
@@ -277,6 +299,10 @@ examples:
         help="Encoding speed preset — slower = smaller file (default: fast)",
     )
     parser.add_argument(
+        "--target-duration", default=None, metavar="MIN:SS",
+        help="Target output duration, e.g. 15:00. Removes only the longest pauses needed to reach this.",
+    )
+    parser.add_argument(
         "--output", default=None,
         help="Output file path (default: <input>_cleaned.mp4)",
     )
@@ -312,8 +338,33 @@ examples:
         words       = transcribe(wav_path, args.model, args.language)
 
         print("[3/6] Detecting cuts...")
-        cuts        = build_cut_regions(words, video_duration, args.pause_threshold,
-                                        filler_words, FILLER_PADDING)
+        # Collect all pause gaps first (for optional target-duration mode)
+        pause_gaps = [
+            [words[i]["end"], words[i + 1]["start"]]
+            for i in range(len(words) - 1)
+            if words[i + 1]["start"] - words[i]["end"] > args.pause_threshold
+        ]
+        # Add leading / trailing silence
+        if words and words[0]["start"] > args.pause_threshold:
+            pause_gaps.append([0.0, words[0]["start"]])
+        if words and words[-1]["end"] < video_duration - args.pause_threshold:
+            pause_gaps.append([words[-1]["end"], video_duration])
+
+        if args.target_duration:
+            # Parse MM:SS or HH:MM:SS
+            parts = [int(p) for p in args.target_duration.split(":")]
+            target_secs = parts[-1] + parts[-2] * 60 + (parts[-3] * 3600 if len(parts) == 3 else 0)
+            print(f"      Target: {fmt_duration(target_secs)} — selecting minimum pauses to cut...")
+            cuts = greedy_cuts_for_target(pause_gaps, video_duration, target_secs)
+            # Still include filler word cuts if fillers are on
+            if not args.no_fillers:
+                filler_cuts = build_cut_regions([], video_duration, args.pause_threshold,
+                                                filler_words, FILLER_PADDING)
+                cuts = cuts + filler_cuts
+        else:
+            cuts = build_cut_regions(words, video_duration, args.pause_threshold,
+                                     filler_words, FILLER_PADDING)
+
         keep_ranges = merge_cuts_to_keep_ranges(cuts, video_duration, MIN_SEGMENT)
 
         if not keep_ranges:
